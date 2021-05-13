@@ -10,4 +10,4 @@ Output serial Meade LX200 commands, via USB, to Arduino Autoguider https://githu
 
 ## Screenshot
 
-![screenshot](PiAGLite.jpg)
+![screenshot](screen_shot.jpg)
