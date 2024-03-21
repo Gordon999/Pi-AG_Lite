@@ -6,21 +6,23 @@ import numpy as np
 import pygame
 from pygame.locals import *
 import os
+from picamera2 import Picamera2
+from libcamera import controls
 
-# v0.02
+# v0.03
 
 # set default parameters
-pi_cam       = 1       # 1 = use Pi Camera, 0 = use USB camera
+Pi_Cam       = 0       # 1 = use Pi Camera, 0 = use USB camera
 crop         = 60      # size of detection window *
 threshold    = 0       # 0 = auto *
 scale        = 100     # mS/pixel *
-fps          = 12      # set camera fps              (Pi camera only) *
-mode         = 8       # set camera mode             (Pi camera only) *
+fps          = 25      # set camera fps              (Pi camera only) *
+mode         = 0       # set camera mode             (Pi camera only) *
 speed        = 80000   # mS x 1000                   (Pi camera only) *
-ISO          = 0       # 0 = auto or 100,200,400,800 (Pi camera only) *
-AEB          = 0       # Auto Exposure Bias          (Pi camera only) *
-brightness   = 50      # set camera brightness *
-contrast     = 50      # set camera contrast *
+Again        = 0       # 0 = auto (Pi camera only) *
+ev           = 0       # Auto Exposure Bias          (Pi camera only) *
+brightness   = 3       # set camera brightness *
+contrast     = 20      # set camera contrast *
 Auto_G       = 0       # Auto Guide 0 = off, 1 = ON *
 min_corr     = 100     # mS, no guiding correction applied below this *
 interval     = 10      # Interval between corrections in Frames *
@@ -51,7 +53,7 @@ backlight    = 0      # sets it OFF 0-1
 
 # check PiAGconfig.txt exists, if not then write default values
 if not os.path.exists('PiAGLconfig.txt'):
-    points = [crop,threshold,scale,fps,mode,speed,ISO,brightness,contrast,Auto_G,min_corr,interval,InvRA,InvDEC,preview,c_mask,fullscreen,AEB,noise,binn,
+    points = [crop,threshold,scale,fps,mode,speed,Again,brightness,contrast,Auto_G,min_corr,interval,InvRA,InvDEC,preview,c_mask,fullscreen,ev,noise,binn,
               Auto_Gain,exposure,gain,gamma,red_balance,blue_balance,auto_contour,contour,dnr,backlight,conl]
     with open('PiAGLconfig.txt', 'w') as f:
         for item in points:
@@ -83,7 +85,7 @@ InvDEC      = config[13]
 preview     = config[14]
 c_mask      = config[15]
 fullscreen  = config[16]
-AEB         = config[17]
+ev          = config[17]
 noise       = config[18]
 binn        = config[19]
 Auto_Gain   = config[20]
@@ -99,7 +101,7 @@ backlight   = config[29]
 conl        = config[30]
 
 # set variables
-if pi_cam == 1:
+if Pi_Cam == 1:
     width = 1920
     height = 1088
 else:
@@ -178,6 +180,7 @@ modes  = ['OFF','0','0','0','0','0','0','0','Night','0','0','Sports']
 widths = [640, 800, 960, 1280, 1620, 1920, 2592, 3280]
 scales = [1, 1.25, 1.5, 2, 2.531, 3, 4.047, 5.125]
 scalex = int(scale / scales[zoom])
+modes  = ['manual','normal','short','long']
 
 global greyColor, redColor, greenColor, blueColor, dgryColor, lgryColor, blackColor, whiteColor, purpleColor, yellowColor
 bredColor   = pygame.Color(255,   0,   0)
@@ -230,10 +233,11 @@ def text(col,row,fColor,top,upd,msg,fsize,bcolor,x):
       pygame.display.update(bx, by, 80, 40)
 
 # initialize the camera
-if pi_cam == 1:
-    cam = cv2.VideoCapture(0)
-    cam.set(3,width)
-    cam.set(4,height)
+if Pi_Cam == 1:
+    # start Pi camera
+    picam2 = Picamera2()
+    picam2.configure(picam2.create_preview_configuration(main={"format": 'XRGB8888', "size": (640, 480)}))
+    picam2.start()
 else:
     import pygame.camera
     pygame.camera.init()
@@ -273,60 +277,51 @@ text(0,1,2,0,1,"Zoom",14,7,640)
 text(0,1,3,1,1,str(zoom),18,7,640)
 text(1,7,2,0,1,"mS/pixel",14,7,640)
 text(1,7,3,1,1,str(scalex),18,7,640)
-if pi_cam == 1:
-    text(0,4,5,0,1,"Brightness",14,7,640)
-    text(0,4,3,1,1,str(brightness),18,7,640)
-    path = 'v4l2-ctl --set-ctrl=brightness=' + str(brightness)
-    os.system (path)
-    text(1,4,5,0,1,"Contrast",14,7,640)
-    text(1,4,3,1,1,str(contrast),18,7,640)
-    path = 'v4l2-ctl --set-ctrl=contrast=' + str(contrast)
-    os.system (path)
-    text(1,1,5,0,1,"AEB",14,7,640)
-    text(1,1,3,1,1,str(AEB),18,7,640)
+if Pi_Cam == 1:
+    # setup camera parameters
     text(0,2,5,0,1,"FPS",14,7,640)
     text(0,2,3,1,1,str(fps),18,7,640)
     text(1,2,5,0,1,"Mode",14,7,640)
     text(1,2,3,1,1,modes[mode],18,7,640)
-    path = 'v4l2-ctl --set-ctrl=scene_mode=' + str(mode)
-    os.system (path)
-    path = 'v4l2-ctl --set-ctrl=auto_exposure=0'
-    os.system (path)
-    path = 'v4l2-ctl --set-ctrl=auto_exposure_bias=' + str(AEB + 12)
-    os.system (path)
+    text(1,1,5,0,1,"EV",14,7,640)
+    text(1,1,3,1,1,str(ev),18,7,640)
+    if mode == 0:
+        picam2.set_controls({"AeEnable": False,"ExposureTime": speed})
+    else:
+        if mode == 1:
+            picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Normal})
+        elif mode == 2:
+            picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Short})
+        elif mode == 3:
+            picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Long})
+    text(1,2,3,1,1,modes[mode],18,7,640)
     text(0,3,5,0,1,"Shutter mS",14,7,640)
     if mode == 0:
         text(0,3,3,1,1,str(int(speed/1000)),18,7,640)
     else:
         text(0,3,0,1,1,str(int(speed/1000)),18,7,640)
-    text(1,3,5,0,1,"ISO",14,7,640)
-    if ISO == 0:
-        ISO2 = 0
-        if mode != 0:
-            text(1,3,3,1,1,"Auto",18,7,640)
-        else:
-            text(1,3,0,1,1,"Auto",18,7,640)
-        path = 'v4l2-ctl --set-ctrl=iso_sensitivity_auto=1'
-        os.system (path)
-    elif ISO == 1:
-        ISO2 = 100
-    elif ISO == 2:
-        ISO2 = 200
-    elif ISO == 3:
-        ISO2 = 400
-    elif ISO == 4:
-        ISO2 = 800
-    if ISO > 0:
-        path = 'v4l2-ctl --set-ctrl=iso_sensitivity_auto=0'
-        os.system (path)
-        if mode != 0:
-            text(1,3,3,1,1,str(ISO2),18,7,640)
-        else:
-            text(1,3,0,1,1,str(ISO2),18,7)
-    path = 'v4l2-ctl --set-ctrl=iso_sensitivity=' + str(ISO)
-    os.system (path)
-    path = 'v4l2-ctl --set-ctrl=compression_quality=100'
-    os.system (path)
+    time.sleep(1)
+    if Pi_Cam == 3:
+        if v3_f_mode == 0:
+            picam2.set_controls({"AfMode": controls.AfModeEnum.Manual, "AfMetering" : controls.AfMeteringEnum.Windows,  "AfWindows" : [(int(vid_width* .33),int(vid_height*.33),int(vid_width * .66),int(vid_height*.66))]})
+        elif v3_f_mode == 1:
+            picam2.set_controls({"AfMode": controls.AfModeEnum.Auto, "AfMetering" : controls.AfMeteringEnum.Windows,  "AfWindows" : [(int(vid_width*.33),int(vid_height*.33),int(vid_width * .66),int(vid_height*.66))]})
+            picam2.set_controls({"AfTrigger": controls.AfTriggerEnum.Start})
+        elif v3_f_mode == 2:
+            picam2.set_controls( {"AfMode" : controls.AfModeEnum.Continuous, "AfMetering" : controls.AfMeteringEnum.Windows,  "AfWindows" : [(int(vid_width*.33),int(vid_height*.33),int(vid_width * .66),int(vid_height*.66))] } )
+            picam2.set_controls({"AfTrigger": controls.AfTriggerEnum.Start})
+    picam2.set_controls({"Brightness": brightness/10})
+    text(0,4,5,0,1,"Brightness",14,7,640)
+    text(0,4,3,1,1,str(brightness),18,7,640)
+    text(1,4,5,0,1,"Contrast",14,7,640)
+    picam2.set_controls({"Contrast": contrast/10})
+    text(1,4,3,1,1,str(contrast),18,7,640)
+    picam2.set_controls({"ExposureValue": ev/10})
+    picam2.set_controls({"AnalogueGain": Again})
+    text(1,3,5,0,1,"Gain",14,7,640)
+    text(1,3,3,1,1,str(Again),18,7,640)
+    picam2.set_controls({"FrameRate": fps})
+    text(0,2,3,1,1,str(fps),18,7,640)
 
 else:
     # Philips Webcam initialisation
@@ -441,10 +436,10 @@ while True:
     frames +=1
     capture +=1
     time.sleep(0.25)
-    if pi_cam == 1:
-        ok, image = cam.read()
-        image = cv2.flip(image,0)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    if Pi_Cam == 1:
+        # GET AN IMAGE from Pi camera
+        img = picam2.capture_array("main")
+        image = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     else:
         img = cam.get_image()
         image = pygame.surfarray.array3d(img)
@@ -659,7 +654,7 @@ while True:
                config[14] = preview
                config[15] = c_mask
                config[16] = fullscreen
-               config[17] = AEB
+               config[17] = ev
                config[18] = noise
                config[19] = binn
                config[20] = Auto_Gain
@@ -763,26 +758,24 @@ while True:
                    scalex = int(scale / scales[zoom])
                    scalex = max(scalex,0)
                    text(1,7,3,1,1,str(scalex),18,7,640)
-               elif g == 7 and mode != 0 or (g == 7 and pi_cam == 0):
-                   if pi_cam == 1:
-                       AEB +=1
-                       AEB = min(AEB,12)
-                       path = 'v4l2-ctl --set-ctrl=auto_exposure_bias=' + str(AEB+12)
-                       os.system (path)
-                       text(1,1,3,1,1,str(AEB),18,7,640)
+               elif g == 7 and mode != 0 or (g == 7 and Pi_Cam == 0):
+                   if Pi_Cam == 1:
+                       ev +=1
+                       ev = min(ev,12)
+                       picam2.set_controls({"ExposureValue": ev/10})
+                       text(1,1,3,1,1,str(ev),18,7,640)
                    else:
                        gain +=1
                        gain = min(gain,63)
                        path = "v4l2-ctl -c gain=" + str(gain) + " -d " + str(dve)
                        os.system (path)
                        text(1,1,3,1,1,str(gain),18,7,640)
-               elif (g == 6 and mode != 0) or (g == 6 and pi_cam == 0):
-                   if pi_cam == 1:
-                       AEB -=1
-                       AEB = max(AEB,-12)
-                       path = 'v4l2-ctl --set-ctrl=auto_exposure_bias=' + str(AEB+12)
-                       os.system (path)
-                       text(1,1,3,1,1,str(AEB),18,7,640)
+               elif (g == 6 and mode != 0) or (g == 6 and Pi_Cam == 0):
+                   if Pi_Cam == 1:
+                       ev -=1
+                       ev = max(ev,-12)
+                       picam2.set_controls({"ExposureValue": ev/10})
+                       text(1,1,3,1,1,str(ev),18,7,640)
                    else:
                        gain -=1
                        gain = max(gain,0)
@@ -791,71 +784,53 @@ while True:
                        text(1,1,3,1,1,str(gain),18,7,640)
 
                elif g == 9:
-                   if pi_cam == 1:
+                   if Pi_Cam == 1:
                        fps +=1
                        fps = min(fps,40)
-                       path = 'v4l2-ctl -p ' + str(fps)
-                       os.system (path)
+                       picam2.set_controls({"FrameRate": fps})
                        text(0,2,3,1,1,str(fps),18,7,640)
                    else:
                        conl +=1
                        conl = min(conl,255)
                        text(0,2,3,1,1,str(conl),18,7,640)
                elif g == 8:
-                   if pi_cam == 1:
+                   if Pi_Cam == 1:
                        fps -=1
                        fps = max(fps,1)
-                       path = 'v4l2-ctl -p ' + str(fps)
-                       os.system (path)
+                       picam2.set_controls({"FrameRate": fps})
                        text(0,2,3,1,1,str(fps),18,7,640)
                    else:
                        conl -=1
                        conl = max(conl,1)
                        text(0,2,3,1,1,str(conl),18,7,640)
-               elif (g == 11 and pi_cam == 1) or (g == 10 and pi_cam == 1):
-                 if pi_cam == 1:
-                   if mode == 0:
-                       mode = 8
-                   elif mode == 8:
-                       mode = 11
-                   elif mode == 11:
+               elif (g == 11 and Pi_Cam == 1) or (g == 10 and Pi_Cam == 1):
+                 if Pi_Cam == 1:
+                    mode += 1
+                    if mode == 4:
                        mode = 0
- 
-                   if mode == 0:
-                       path = 'v4l2-ctl --set-ctrl=auto_exposure=1'
-                       os.system (path)
-                       path = 'v4l2-ctl --set-ctrl=exposure_time_absolute=' + str(speed/100)
-                       os.system (path)
-                       path = 'v4l2-ctl --set-ctrl=scene_mode=' + str(mode)
-                       os.system (path)
-                       text(0,3,3,1,1,str(int(speed/1000)),18,7,640)
-                       if ISO == 0:
-                           text(1,3,0,1,1,"Auto",18,7,640)
-                       else:
-                           text(1,3,0,1,1,str(ISO2),18,7,640)
-                       text(1,1,0,1,1,str(AEB),18,7,640)
-                           
-                   else:
-                       path = 'v4l2-ctl --set-ctrl=auto_exposure=0'
-                       os.system (path)
-                       path = 'v4l2-ctl --set-ctrl=scene_mode=' + str(mode)
-                       os.system (path)
-                       time.sleep(1)
-                       text(0,3,0,1,1,str(int(speed/1000)),18,7,640)
-                       if ISO == 0:
-                           text(1,3,3,1,1,"Auto",18,7,640)
-                       else:
-                           text(1,3,3,1,1,str(ISO2),18,7,640)
-                       text(1,1,3,1,1,str(AEB),18,7,640)
-                   text(1,2,3,1,1,modes[mode],18,7,640)
-               elif (g == 11 and pi_cam == 0):
+                    if mode == 0:
+                       picam2.set_controls({"AeEnable": False,"ExposureTime": speed})
+                    else:
+                       if mode == 1:
+                           picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Normal})
+                       elif mode == 2:
+                           picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Short})
+                       elif mode == 3:
+                           picam2.set_controls({"AeEnable": True,"AeExposureMode": controls.AeExposureModeEnum.Long})
+                    text(1,2,3,1,1,modes[mode],18,7,640)
+                    text(0,3,5,0,1,"Shutter mS",14,7,640)
+                    if mode == 0:
+                      text(0,3,3,1,1,str(int(speed/1000)),18,7,640)
+                    else:
+                      text(0,3,0,1,1,str(int(speed/1000)),18,7,640)
+               elif (g == 11 and Pi_Cam == 0):
                      gamma +=1
                      if gamma > 31:
                          gamma = 31
                      text(1,2,3,1,1,str(gamma),18,7,640)
                      rpistr = "v4l2-ctl -c gamma=" + str(gamma) + " -d " + str(dve)
                      os.system(rpistr)
-               elif (g == 10 and pi_cam == 0):
+               elif (g == 10 and Pi_Cam == 0):
                      gamma -=1
                      if gamma < 0:
                          gamma = 0
@@ -863,17 +838,10 @@ while True:
                      rpistr = "v4l2-ctl -c gamma=" + str(gamma) + " -d " + str(dve)
                      os.system(rpistr)
                elif g == 13 and mode == 0:
-                   if pi_cam == 1:
+                   if Pi_Cam == 1:
                        speed +=1000
                        speed = min(speed,6000000)
-                       path = 'v4l2-ctl --set-ctrl=auto_exposure=1'
-                       os.system (path)
-                       path = 'v4l2-ctl --set-ctrl=exposure_time_absolute=' + str(speed/100)
-                       os.system (path)
-                       fps = int(1/(speed/1000000))
-                       fps = min(fps,40)
-                       path = 'v4l2-ctl -p ' + str(fps)
-                       os.system (path)
+                       picam2.set_controls({"AeEnable": False,"ExposureTime": speed})
                        text(0,3,3,1,1,str(int(speed/1000)),18,7,640)
                        text(0,2,3,1,1,str(fps),18,7,640)
                    else:
@@ -883,17 +851,10 @@ while True:
                        path = "v4l2-ctl -c exposure=" + str(exposure) + " -d " + str(dve)
                        os.system (path)
                elif g == 12 and mode == 0:
-                   if pi_cam == 1:
+                   if Pi_Cam == 1:
                        speed -=1000
                        speed = max(speed,1000)
-                       path = 'v4l2-ctl --set-ctrl=auto_exposure=1'
-                       os.system (path)
-                       path = 'v4l2-ctl --set-ctrl=exposure_time_absolute=' + str(speed/100)
-                       os.system (path)
-                       fps = int(1/(speed/1000000))
-                       fps = min(fps,40)
-                       path = 'v4l2-ctl -p ' + str(fps)
-                       os.system (path)
+                       picam2.set_controls({"AeEnable": False,"ExposureTime": speed})
                        text(0,3,3,1,1,str(int(speed/1000)),18,7,640)
                        text(0,2,3,1,1,str(fps),18,7,640)
                    else:
@@ -902,37 +863,34 @@ while True:
                        text(0,3,3,1,1,str(exposure),18,7,640)
                        path = "v4l2-ctl -c exposure=" + str(exposure) + " -d " + str(dve)
                        os.system (path)
-               elif (g == 15 and mode != 0) or (g == 14 and mode != 0) or (g == 14 and pi_cam == 0) or (g == 15 and pi_cam == 0):
-                 if pi_cam == 1:
-                   if g == 14 and ISO > 0:
-                       ISO -=1
-                   elif g == 15 and ISO < 4:
-                       ISO +=1
-                   if ISO == 0:
-                       ISO2 = 0
-                       path = 'v4l2-ctl --set-ctrl=iso_sensitivity_auto=1'
-                       os.system (path)
-                       if mode != 0:
-                           text(1,3,3,1,1,"Auto",18,7,640)
-                       else:
-                           text(1,3,0,1,1,"Auto",18,7,640)
-                   elif ISO == 1:
-                       ISO2 = 100
-                   elif ISO == 2:
-                       ISO2 = 200
-                   elif ISO == 3:
-                       ISO2 = 400
-                   elif ISO == 4:
-                       ISO2 = 800
-                   if ISO > 0:
-                       path = 'v4l2-ctl --set-ctrl=iso_sensitivity_auto=0'
-                       os.system (path)
-                       if mode != 0:
-                           text(1,3,3,1,1,str(ISO2),18,7,640)
-                       else:
-                           text(1,3,0,1,1,str(ISO2),18,7,640)
-                   path = 'v4l2-ctl --set-ctrl=iso_sensitivity=' + str(ISO)
-                   os.system (path)
+               elif g == 15 :
+                 if Pi_Cam == 1:
+                     Again += 1
+                     Again = min(Again,64)
+                     picam2.set_controls({"AnalogueGain": Again})
+                     text(1,3,3,1,1,str(Again),18,7,640)
+                 else:
+                     Auto_Gain +=1
+                     if Auto_Gain > 1:
+                         Auto_Gain = 0
+                     if Auto_Gain != 0:
+                         text(1,3,3,1,1,"ON",18,7,640)
+                     else:
+                         text(1,3,0,1,1,"off",18,7,640)
+                     rpistr = "v4l2-ctl -c gain_automatic=" + str(Auto_Gain) + " -d " + str(dve)
+                     os.system(rpistr)
+                     if Auto_Gain == 0:
+                         path = "v4l2-ctl -c exposure=" + str(exposure) + " -d " + str(dve)
+                         os.system (path)
+                         path = "v4l2-ctl -c gain=" + str(gain) + " -d " + str(dve)
+                         os.system (path)
+
+               elif g == 14 :
+                 if Pi_Cam == 1:
+                     Again -= 1
+                     Again = max(0,Again)
+                     picam2.set_controls({"AnalogueGain": Again})
+                     text(1,3,3,1,1,str(Again),18,7,640)
                  else:
                      Auto_Gain +=1
                      if Auto_Gain > 1:
@@ -952,48 +910,48 @@ while True:
 
                elif g == 17:
                    brightness +=1
-                   if pi_cam == 1:
+                   if Pi_Cam == 1:
                        brightness = min(brightness,100)
                    else:
                        brightness = min(brightness,127)
-                   if pi_cam == 1:
-                       path = 'v4l2-ctl --set-ctrl=brightness=' + str(brightness)
+                   if Pi_Cam == 1:
+                       picam2.set_controls({"Brightness": brightness/10})
                    else:
                        path = "v4l2-ctl -c brightness=" + str(brightness) + " -d " + str(dve)
-                   os.system (path)
+                       os.system (path)
                    text(0,4,3,1,1,str(brightness),18,7,640)
                elif g == 16:
                    brightness -=1
                    brightness = max(brightness,0)
-                   if pi_cam == 1:
-                       path = 'v4l2-ctl --set-ctrl=brightness=' + str(brightness)
+                   if Pi_Cam == 1:
+                       picam2.set_controls({"Brightness": brightness/10})
                    else:
                        path = "v4l2-ctl -c brightness=" + str(brightness) + " -d " + str(dve)
-                   os.system (path)
+                       os.system (path)
                    text(0,4,3,1,1,str(brightness),18,7,640)
                elif g == 19:
                    contrast +=1
-                   if pi_cam == 1:
+                   if Pi_Cam == 1:
                        contrast = min(contrast,100)
                    else:
                        contrast = min(contrast,63)
-                   if pi_cam == 1:
-                       path = 'v4l2-ctl --set-ctrl=contrast=' + str(contrast)
+                   if Pi_Cam == 1:
+                       picam2.set_controls({"Contrast": contrast/10})
                    else:
                        path = "v4l2-ctl -c contrast=" + str(contrast) + " -d " + str(dve)
-                   os.system (path)
+                       os.system (path)
                    text(1,4,3,1,1,str(contrast),18,7,640)
                elif g == 18:
                    contrast -=1
-                   if pi_cam == 1:
+                   if Pi_Cam == 1:
                        contrast = max(contrast,-100)
                    else:
                        contrast = max(contrast,0)
-                   if pi_cam == 1:
-                       path = 'v4l2-ctl --set-ctrl=contrast=' + str(contrast)
+                   if Pi_Cam == 1:
+                       picam2.set_controls({"Contrast": contrast/10})
                    else:
                        path = "v4l2-ctl -c contrast=" + str(contrast) + " -d " + str(dve)
-                   os.system (path)
+                       os.system (path)
                    text(1,4,3,1,1,str(contrast),18,7,640)
                elif g == 21:
                    xo +=1
@@ -1134,7 +1092,7 @@ while True:
                config[3]  = fps
                config[4]  = mode
                config[5]  = speed
-               config[6]  = ISO
+               config[6]  = Again
                config[7]  = brightness
                config[8]  = contrast
                config[9] = Auto_G
@@ -1145,7 +1103,7 @@ while True:
                config[14] = preview
                config[15] = c_mask
                config[16] = fullscreen
-               config[17] = AEB
+               config[17] = ev
                config[18] = noise
                config[19] = binn
                config[20] = Auto_Gain
@@ -1163,9 +1121,3 @@ while True:
                with open('PiAGLconfig.txt', 'w') as f:
                    for item in config:
                        f.write("%s\n" % item)
-
-
-
-
-                      
-
