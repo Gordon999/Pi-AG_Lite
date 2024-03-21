@@ -12,7 +12,7 @@ from libcamera import controls
 # v0.03
 
 # set default parameters
-Pi_Cam       = 0       # 1 = use Pi Camera, 0 = use USB camera
+Pi_Cam       = 1       # 1 = use Pi Camera, 0 = use USB camera
 crop         = 60      # size of detection window *
 threshold    = 0       # 0 = auto *
 scale        = 100     # mS/pixel *
