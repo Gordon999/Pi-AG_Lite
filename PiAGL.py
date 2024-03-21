@@ -241,12 +241,12 @@ if Pi_Cam == 1:
 else:
     import pygame.camera
     pygame.camera.init()
-    if os.path.exists('/dev/video1') == True:
-        cam = pygame.camera.Camera("/dev/video1", (width,height))
-        dve = 1
-    elif os.path.exists('/dev/video0') == True:
+    if os.path.exists('/dev/video0') == True:
         cam = pygame.camera.Camera("/dev/video0", (width,height))
         dve = 0
+    elif os.path.exists('/dev/video1') == True:
+        cam = pygame.camera.Camera("/dev/video1", (width,height))
+        dve = 1
     cam.start()
 
 
