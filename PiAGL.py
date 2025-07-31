@@ -1,4 +1,22 @@
 #!/usr/bin/env python3
+
+"""Copyright (c) 2025
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE."""
+
 import cv2
 import time
 import math
@@ -9,7 +27,7 @@ import os
 from picamera2 import Picamera2
 from libcamera import controls
 
-# v0.03
+# v0.05
 
 # set default parameters
 Pi_Cam       = 1       # 1 = use Pi Camera, 0 = use USB camera
@@ -129,6 +147,7 @@ ser_connected = 0
 ser2_connected = 0
 ISO2 = ISO
 focus_speed = 2
+parameters = []
 
 import serial
 if os.path.exists('/dev/ttyACM0') == True:
@@ -239,16 +258,101 @@ if Pi_Cam == 1:
     picam2.configure(picam2.create_preview_configuration(main={"format": 'XRGB8888', "size": (640, 480)}))
     picam2.start()
 else:
+    # find USB camera
+    cam1 = -1
+    x = 0
+    while cam1 == -1 and x < 42:
+        txt = "v4l2-ctl -d " + str(x) + " --list-ctrls > /run/shm/cam_ctrls.txt"
+        os.system(txt)
+        ctrls = []
+        with open("/run/shm/cam_ctrls.txt", "r") as file:
+            line = file.readline()
+            while line:
+                ctrls.append(line)
+                line = file.readline()
+        if 'User Controls\n' in ctrls and ('Camera Controls\n' in ctrls):
+            cam1 = x
+        else:
+            x +=1
+    dve = cam1
+    if cam1 == -1:
+        print(" No USB camera found !!")
+        exit()
     import pygame.camera
     pygame.camera.init()
-    if os.path.exists('/dev/video0') == True:
-        cam = pygame.camera.Camera("/dev/video0", (width,height))
-        dve = 0
-    elif os.path.exists('/dev/video1') == True:
-        cam = pygame.camera.Camera("/dev/video1", (width,height))
-        dve = 1
+    cam = pygame.camera.Camera("/dev/video" + str(cam1), (width,height))
     cam.start()
 
+def camera_controls():
+    # find camera controls
+    global cam1,parameters
+    txt = "v4l2-ctl -l -d " + str(cam1) + " > /run/shm/cam_ctrls.txt"
+    os.system(txt)
+    config = []
+    with open("/run/shm/cam_ctrls.txt", "r") as file:
+        line = file.readline()
+        while line:
+            config.append(line.strip())
+            line = file.readline()
+    parameters = []
+    for x in range(0,len(config)):
+        fet = config[x].split(' ')
+        name = ""
+        minm = -1
+        maxm = -1
+        step = -1
+        defa = -1
+        valu = -1
+        for y in range(0,len(fet)):
+            name = fet[0]
+            if fet[y][0:3] == "min":
+                minm = fet[y][4:]
+            if fet[y][0:3] == "max":
+                maxm = fet[y][4:]
+            if fet[y][0:3] == "ste":
+                step = fet[y][5:]
+            if fet[y][0:3] == "def":
+                defa = fet[y][8:]
+            if fet[y][0:3] == "val":
+                valu = fet[y][6:]
+            if valu != -1 and defa != -1: 
+                parameters.append(name)
+                parameters.append(minm)
+                parameters.append(maxm)
+                parameters.append(step)
+                parameters.append(defa)
+                parameters.append(valu)
+                name = ""
+                minm = -1
+                maxm = -1
+                step = -1
+                defa = -1
+                valu = -1
+
+if Pi_Cam == 0:
+    camera_controls()
+    #print(parameters)
+    for d in range(0,len(parameters),6):
+        if parameters[d] == 'brightness':
+            brightness = int(parameters[d+5])
+            brmin = int(parameters[d+1])
+            brmax = int(parameters[d+2])
+        if parameters[d] == 'contrast':
+            contrast = int(parameters[d+5])
+            comin = int(parameters[d+1])
+            comax = int(parameters[d+2])
+        if parameters[d] == 'auto_exposure':
+            Auto_Gain = int(parameters[d+5])
+            agmin = int(parameters[d+1])
+            agmax = int(parameters[d+2])
+        if parameters[d] == 'exposure_time_absolute':
+            exposure = int(parameters[d+5])
+            exmin = int(parameters[d+1])
+            exmax = int(parameters[d+2])
+        if parameters[d] == 'gain':
+            gain = int(parameters[d+5])
+            gamin = int(parameters[d+1])
+            gamax = int(parameters[d+2])
 
 for c in range(0,2):
     for d in range(0,12):
@@ -327,31 +431,13 @@ else:
     # Philips Webcam initialisation
     rpistr = "v4l2-ctl -c gain=" + str(gain) + " -d " + str(dve)
     os.system (rpistr)
-    rpistr = "v4l2-ctl -c gamma=" + str(gamma) + " -d " + str(dve)
-    os.system(rpistr)
-    rpistr = "v4l2-ctl -c white_balance_automatic=3" + " -d " + str(dve)
-    os.system(rpistr)
-    rpistr = "v4l2-ctl -c red_balance=" + str(red_balance) + " -d " + str(dve)
-    os.system(rpistr)
-    rpistr = "v4l2-ctl -c blue_balance=" + str(blue_balance) + " -d " + str(dve)
-    os.system(rpistr)
-    rpistr = "v4l2-ctl -c auto_contour=" + str(auto_contour) + " -d " + str(dve)
-    os.system(rpistr)
-    rpistr = "v4l2-ctl -c contour=" + str(contour) + " -d " + str(dve)
-    os.system(rpistr)
-    rpistr = "v4l2-ctl -c dynamic_noise_reduction=" + str(dnr) + " -d " + str(dve)
-    os.system(rpistr)
     rpistr = "v4l2-ctl -c backlight_compensation=" + str(backlight) + " -d " + str(dve)
     os.system(rpistr)
-    text(1,2,5,0,1,"Gamma",14,7,640)
-    text(1,2,3,1,1,str(gamma),18,7,640)
+    
     text(1,1,5,0,1,"Gain",14,7,640)
     text(1,1,3,1,1,str(gain),18,7,640)
     text(1,3,5,0,1,"Auto Gain",14,7,640)
-    if Auto_Gain != 0:
-        text(1,3,3,1,1,"ON",18,7,640)
-    else:
-        text(1,3,0,1,1,"off",18,7,640)
+    text(1,3,3,1,1,str(Auto_Gain),18,7,640)
     path = "v4l2-ctl -c gain_automatic=" + str(Auto_Gain) + " -d " + str(dve)
     os.system(rpistr)
     text(0,3,5,0,1,"Exposure",14,7,640)
@@ -766,7 +852,7 @@ while True:
                        text(1,1,3,1,1,str(ev),18,7,640)
                    else:
                        gain +=1
-                       gain = min(gain,63)
+                       gain = min(gain,gamax)
                        path = "v4l2-ctl -c gain=" + str(gain) + " -d " + str(dve)
                        os.system (path)
                        text(1,1,3,1,1,str(gain),18,7,640)
@@ -823,20 +909,6 @@ while True:
                       text(0,3,3,1,1,str(int(speed/1000)),18,7,640)
                     else:
                       text(0,3,0,1,1,str(int(speed/1000)),18,7,640)
-               elif (g == 11 and Pi_Cam == 0):
-                     gamma +=1
-                     if gamma > 31:
-                         gamma = 31
-                     text(1,2,3,1,1,str(gamma),18,7,640)
-                     rpistr = "v4l2-ctl -c gamma=" + str(gamma) + " -d " + str(dve)
-                     os.system(rpistr)
-               elif (g == 10 and Pi_Cam == 0):
-                     gamma -=1
-                     if gamma < 0:
-                         gamma = 0
-                     text(1,2,3,1,1,str(gamma),18,7,640)
-                     rpistr = "v4l2-ctl -c gamma=" + str(gamma) + " -d " + str(dve)
-                     os.system(rpistr)
                elif g == 13 and mode == 0:
                    if Pi_Cam == 1:
                        speed +=1000
@@ -846,9 +918,9 @@ while True:
                        text(0,2,3,1,1,str(fps),18,7,640)
                    else:
                        exposure +=1
-                       exposure = min(exposure,255)
+                       exposure = min(exposure,exmax)
                        text(0,3,3,1,1,str(exposure),18,7,640)
-                       path = "v4l2-ctl -c exposure=" + str(exposure) + " -d " + str(dve)
+                       path = "v4l2-ctl -c exposure_time_absolute=" + str(exposure) + " -d " + str(dve)
                        os.system (path)
                elif g == 12 and mode == 0:
                    if Pi_Cam == 1:
@@ -861,7 +933,7 @@ while True:
                        exposure -=1
                        exposure = max(exposure,1)
                        text(0,3,3,1,1,str(exposure),18,7,640)
-                       path = "v4l2-ctl -c exposure=" + str(exposure) + " -d " + str(dve)
+                       path = "v4l2-ctl -c exposure_time_absolute=" + str(exposure) + " -d " + str(dve)
                        os.system (path)
                elif g == 15 :
                  if Pi_Cam == 1:
@@ -871,16 +943,14 @@ while True:
                      text(1,3,3,1,1,str(Again),18,7,640)
                  else:
                      Auto_Gain +=1
-                     if Auto_Gain > 1:
+                     print(Auto_Gain,agmax)
+                     if Auto_Gain > agmax:
                          Auto_Gain = 0
-                     if Auto_Gain != 0:
-                         text(1,3,3,1,1,"ON",18,7,640)
-                     else:
-                         text(1,3,0,1,1,"off",18,7,640)
-                     rpistr = "v4l2-ctl -c gain_automatic=" + str(Auto_Gain) + " -d " + str(dve)
+                     text(1,3,3,1,1,str(Auto_Gain),18,7,640)
+                     rpistr = "v4l2-ctl -c auto_exposure=" + str(Auto_Gain) + " -d " + str(dve)
                      os.system(rpistr)
                      if Auto_Gain == 0:
-                         path = "v4l2-ctl -c exposure=" + str(exposure) + " -d " + str(dve)
+                         path = "v4l2-ctl -c exposure_time_absolute=" + str(exposure) + " -d " + str(dve)
                          os.system (path)
                          path = "v4l2-ctl -c gain=" + str(gain) + " -d " + str(dve)
                          os.system (path)
@@ -892,17 +962,14 @@ while True:
                      picam2.set_controls({"AnalogueGain": Again})
                      text(1,3,3,1,1,str(Again),18,7,640)
                  else:
-                     Auto_Gain +=1
-                     if Auto_Gain > 1:
+                     Auto_Gain -=1
+                     if Auto_Gain < 0:
                          Auto_Gain = 0
-                     if Auto_Gain != 0:
-                         text(1,3,3,1,1,"ON",18,7,640)
-                     else:
-                         text(1,3,0,1,1,"off",18,7,640)
-                     rpistr = "v4l2-ctl -c gain_automatic=" + str(Auto_Gain) + " -d " + str(dve)
+                     text(1,3,3,1,1,str(Auto_Gain),18,7,640)
+                     rpistr = "v4l2-ctl -c auto_exposure=" + str(Auto_Gain) + " -d " + str(dve)
                      os.system(rpistr)
                      if Auto_Gain == 0:
-                         path = "v4l2-ctl -c exposure=" + str(exposure) + " -d " + str(dve)
+                         path = "v4l2-ctl -c exposure_time_absolute=" + str(exposure) + " -d " + str(dve)
                          os.system (path)
                          path = "v4l2-ctl -c gain=" + str(gain) + " -d " + str(dve)
                          os.system (path)
@@ -913,7 +980,7 @@ while True:
                    if Pi_Cam == 1:
                        brightness = min(brightness,100)
                    else:
-                       brightness = min(brightness,127)
+                       brightness = min(brightness,brmax)
                    if Pi_Cam == 1:
                        picam2.set_controls({"Brightness": brightness/10})
                    else:
@@ -934,7 +1001,7 @@ while True:
                    if Pi_Cam == 1:
                        contrast = min(contrast,100)
                    else:
-                       contrast = min(contrast,63)
+                       contrast = min(contrast,comax)
                    if Pi_Cam == 1:
                        picam2.set_controls({"Contrast": contrast/10})
                    else:
@@ -946,7 +1013,7 @@ while True:
                    if Pi_Cam == 1:
                        contrast = max(contrast,-100)
                    else:
-                       contrast = max(contrast,0)
+                       contrast = max(contrast,comin)
                    if Pi_Cam == 1:
                        picam2.set_controls({"Contrast": contrast/10})
                    else:
